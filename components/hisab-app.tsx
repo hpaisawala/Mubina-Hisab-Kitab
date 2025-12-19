@@ -27,8 +27,8 @@ import { SettingsScreen } from "./settings-screen"
 import { ArchivedContacts } from "./archived-contacts"
 
 // Configuration constants
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxsANzUquTsYkV2bVuhxkTavC9LrJAScDZJWvOwTnTkHp2F_7loARlytdOWjT2f3oVDA/exec';
-const API_SECRET = "MUBINA_SECURE_2025";
+const SCRIPT_URL = process.env.NEXT_PUBLIC_SCRIPT_URL || '';
+const API_SECRET = process.env.NEXT_PUBLIC_API_SECRET || '';
 
 export function HisabApp() {
   const [view, setView] = useState<ViewMode>("home")
