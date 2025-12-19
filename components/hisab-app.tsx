@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { v4 as uuidv4 } from "uuid"
-import axios from "axios" // Ensure axios is installed: npm install axios
+import axios from "axios"
 import type { Contact, Transaction, ViewMode, SyncStatus } from "@/lib/types"
 import {
   getContacts,
@@ -26,8 +26,9 @@ import { AddTransaction } from "./add-transaction"
 import { SettingsScreen } from "./settings-screen"
 import { ArchivedContacts } from "./archived-contacts"
 
-// Your Google Apps Script Web App URL
+// Configuration constants
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxsANzUquTsYkV2bVuhxkTavC9LrJAScDZJWvOwTnTkHp2F_7loARlytdOWjT2f3oVDA/exec';
+const API_SECRET = "MUBINA_SECURE_2025";
 
 export function HisabApp() {
   const [view, setView] = useState<ViewMode>("home")
@@ -39,7 +40,7 @@ export function HisabApp() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("online")
   const [pendingCount, setPendingCount] = useState(0)
 
-  // Load data on mount
+  // Load local data on mount
   useEffect(() => {
     const loadData = async () => {
       const [loadedContacts, loadedTransactions, pending] = await Promise.all([
@@ -54,7 +55,7 @@ export function HisabApp() {
     loadData()
   }, [])
 
-  // Check online status
+  // Monitor online/offline status
   useEffect(() => {
     const updateOnlineStatus = () => {
       setSyncStatus(navigator.onLine ? "online" : "offline")
@@ -70,7 +71,7 @@ export function HisabApp() {
     }
   }, [])
 
-  // Load contact transactions when selected
+  // Update specific contact transactions when ledger is opened
   useEffect(() => {
     if (selectedContact) {
       getTransactionsByContact(selectedContact.id).then(setContactTransactions)
@@ -98,7 +99,24 @@ export function HisabApp() {
     const result = await saveContact(newContact)
 
     if (result.success) {
-      setContacts(await getContacts())
+      // Add to sync queue
+      await addPendingSync({
+        id: uuidv4(),
+        action: "create",
+        type: "contact",
+        data: newContact,
+        timestamp: Date.now(),
+      })
+      
+      const updatedContacts = await getContacts()
+      setContacts(updatedContacts)
+      
+      const pending = await getPendingSync()
+      setPendingCount(pending.length)
+      
+      // Auto-sync if online
+      if (navigator.onLine) handleForceSync()
+      
       setView("contact-list")
     }
 
@@ -110,12 +128,12 @@ export function HisabApp() {
       ...transactionData,
       id: uuidv4(),
       timestamp: Date.now(),
-      isSynced: false, // Default to false until it reaches Google Sheets
+      isSynced: false,
     }
 
     await saveTransaction(newTransaction)
 
-    // Always add to pending sync queue for processing
+    // Add to sync queue
     await addPendingSync({
       id: uuidv4(),
       action: "create",
@@ -123,13 +141,14 @@ export function HisabApp() {
       data: newTransaction,
       timestamp: Date.now(),
     })
-    
+
     const pending = await getPendingSync()
     setPendingCount(pending.length)
 
-    setTransactions(await getTransactions())
+    const updatedTransactions = await getTransactions()
+    setTransactions(updatedTransactions)
 
-    // Check if contact should be archived (balance is 0)
+    // Check for auto-archiving (balance 0)
     const allContactTransactions = await getTransactionsByContact(transactionData.contactId)
     const balance = allContactTransactions.reduce((sum, t) => {
       return sum + (t.direction === "given" ? t.amount : -t.amount)
@@ -140,10 +159,8 @@ export function HisabApp() {
       setContacts(await getContacts())
     }
 
-    // Automatically attempt sync if online
-    if (navigator.onLine) {
-      handleForceSync()
-    }
+    // Auto-sync if online
+    if (navigator.onLine) handleForceSync()
 
     setView("ledger")
   }
@@ -154,16 +171,22 @@ export function HisabApp() {
   }
 
   const handleForceSync = async () => {
-    if (!navigator.onLine || pendingCount === 0) return
+    if (!navigator.onLine) return
+    
+    // Get latest pending items
+    const pendingItems = await getPendingSync()
+    if (pendingItems.length === 0) return
 
     setSyncStatus("syncing")
     
     try {
-      const pendingItems = await getPendingSync()
-      
-      // Send the pending data to Google Apps Script
-      // We use text/plain to avoid CORS pre-flight issues common with Google Apps Script
-      const response = await axios.post(SCRIPT_URL, JSON.stringify(pendingItems), {
+      // Wrap data in the structure expected by your Google Apps Script
+      const payload = {
+        secret: API_SECRET,
+        actions: pendingItems
+      }
+
+      const response = await axios.post(SCRIPT_URL, JSON.stringify(payload), {
         headers: {
           'Content-Type': 'text/plain;charset=utf-8',
         },
@@ -173,16 +196,12 @@ export function HisabApp() {
         await clearPendingSync()
         setPendingCount(0)
         setSyncStatus("online")
-        
-        // Update local transaction sync status if necessary
-        const updatedTransactions = await getTransactions()
-        setTransactions(updatedTransactions)
       } else {
-        console.error("Sync error from script:", response.data.message)
-        setSyncStatus("online") // Return to online but keep pending count
+        console.warn("Script returned an error:", response.data.error)
+        setSyncStatus("online")
       }
     } catch (error) {
-      console.error("Network sync failed:", error)
+      console.error("Sync request failed:", error)
       setSyncStatus("online")
     }
   }
@@ -257,7 +276,7 @@ export function HisabApp() {
 
   return (
     <div className="max-w-md mx-auto min-h-screen bg-gray-50 shadow-2xl relative">
-      {/* Sync Status Header */}
+      {/* Sync Status Header - Visible in all views except Home */}
       {view !== "home" && (
         <div className="sticky top-0 bg-white/80 backdrop-blur-sm border-b border-gray-100 px-4 py-2 z-10">
           <SyncStatusIndicator status={syncStatus} pendingCount={pendingCount} />
