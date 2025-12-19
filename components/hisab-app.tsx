@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { v4 as uuidv4 } from "uuid"
+import axios from "axios" // Ensure axios is installed: npm install axios
 import type { Contact, Transaction, ViewMode, SyncStatus } from "@/lib/types"
 import {
   getContacts,
@@ -13,6 +14,7 @@ import {
   restoreContact,
   getPendingSync,
   addPendingSync,
+  clearPendingSync,
 } from "@/lib/storage"
 import { SyncStatusIndicator } from "./sync-status"
 import { HomeScreen } from "./home-screen"
@@ -23,6 +25,9 @@ import { LedgerView } from "./ledger-view"
 import { AddTransaction } from "./add-transaction"
 import { SettingsScreen } from "./settings-screen"
 import { ArchivedContacts } from "./archived-contacts"
+
+// Your Google Apps Script Web App URL
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzxsANzUquTsYkV2bVuhxkTavC9LrJAScDZJWvOwTnTkHp2F_7loARlytdOWjT2f3oVDA/exec';
 
 export function HisabApp() {
   const [view, setView] = useState<ViewMode>("home")
@@ -105,22 +110,22 @@ export function HisabApp() {
       ...transactionData,
       id: uuidv4(),
       timestamp: Date.now(),
-      isSynced: navigator.onLine,
+      isSynced: false, // Default to false until it reaches Google Sheets
     }
 
     await saveTransaction(newTransaction)
 
-    if (!navigator.onLine) {
-      await addPendingSync({
-        id: uuidv4(),
-        action: "create",
-        type: "transaction",
-        data: newTransaction,
-        timestamp: Date.now(),
-      })
-      const pending = await getPendingSync()
-      setPendingCount(pending.length)
-    }
+    // Always add to pending sync queue for processing
+    await addPendingSync({
+      id: uuidv4(),
+      action: "create",
+      type: "transaction",
+      data: newTransaction,
+      timestamp: Date.now(),
+    })
+    
+    const pending = await getPendingSync()
+    setPendingCount(pending.length)
 
     setTransactions(await getTransactions())
 
@@ -135,6 +140,11 @@ export function HisabApp() {
       setContacts(await getContacts())
     }
 
+    // Automatically attempt sync if online
+    if (navigator.onLine) {
+      handleForceSync()
+    }
+
     setView("ledger")
   }
 
@@ -144,13 +154,37 @@ export function HisabApp() {
   }
 
   const handleForceSync = async () => {
-    if (!navigator.onLine) return
+    if (!navigator.onLine || pendingCount === 0) return
 
     setSyncStatus("syncing")
-    // Simulate sync - in a real app, this would sync with a backend
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setPendingCount(0)
-    setSyncStatus("online")
+    
+    try {
+      const pendingItems = await getPendingSync()
+      
+      // Send the pending data to Google Apps Script
+      // We use text/plain to avoid CORS pre-flight issues common with Google Apps Script
+      const response = await axios.post(SCRIPT_URL, JSON.stringify(pendingItems), {
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+      })
+
+      if (response.data.status === 'success') {
+        await clearPendingSync()
+        setPendingCount(0)
+        setSyncStatus("online")
+        
+        // Update local transaction sync status if necessary
+        const updatedTransactions = await getTransactions()
+        setTransactions(updatedTransactions)
+      } else {
+        console.error("Sync error from script:", response.data.message)
+        setSyncStatus("online") // Return to online but keep pending count
+      }
+    } catch (error) {
+      console.error("Network sync failed:", error)
+      setSyncStatus("online")
+    }
   }
 
   const renderView = () => {
