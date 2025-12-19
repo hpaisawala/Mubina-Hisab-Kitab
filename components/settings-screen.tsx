@@ -15,7 +15,7 @@ interface SettingsScreenProps {
 
 export function SettingsScreen({ syncStatus, pendingCount, onViewArchived, onBack, onForceSync }: SettingsScreenProps) {
   const handleCallSupport = () => {
-    window.location.href = "tel:+919876543210"
+    window.location.href = "tel:+919930153114"
   }
 
   return (
