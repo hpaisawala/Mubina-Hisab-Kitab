@@ -1,0 +1,23 @@
+{
+  "name": "Hisab - Financial Ledger",
+  "short_name": "Hisab",
+  "description": "Your personal financial ledger for cash and gold transactions",
+  "theme_color": "#f59e0b",
+  "background_color": "#f9fafb",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
